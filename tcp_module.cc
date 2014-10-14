@@ -130,9 +130,36 @@ int main(int argc, char * argv[]) {
 				switch (req.type) {
 				case CONNECT:
 					{
-						SockRequestResponse conn;
-						conn.type=CONNECT;
-						conn.connection = req.connection;
+						
+						Packet p;
+						// Make the IP header first since we need it to do the udp checksum
+						IPHeader ih;
+						ih.SetProtocol(IP_PROTO_TCP);
+						ih.SetSourceIP(req.connection.src);
+						ih.SetDestIP(req.connection.dest);
+						ih.SetTotalLength(TCP_HEADER_BASE_LENGTH+IP_HEADER_BASE_LENGTH);
+						// push it onto the packet
+						p.PushFrontHeader(ih);
+						// Now build the TCP header
+						// notice that we pass along the packet so that the udpheader can find
+						// the ip header because it will include some of its fields in the checksum
+						TCPHeader uh;
+						unsigned char flag;
+						SET_SYN(flag);
+						uh.SetSourcePort(req.connection.srcport,p);
+						uh.SetDestPort(req.connection.destport,p);
+						uh.SetHeaderLen(TCP_HEADER_BASE_LENGTH,p);
+						uh.SetFlags(flag,p);
+						// Now we want to have the tcp header BEHIND the IP header
+						p.PushBackHeader(uh);
+						MinetSend(mux,p);
+						SockRequestResponse repl;
+						// repl.type=SockRequestResponse::STATUS;
+						repl.type=STATUS;
+						repl.connection=req.connection;
+						repl.bytes=bytes;
+						repl.error=EOK;
+						MinetSend(sock,repl);
 					}
 					break;
 				case ACCEPT:
