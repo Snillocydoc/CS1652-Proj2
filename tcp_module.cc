@@ -85,7 +85,7 @@ int main(int argc, char * argv[]) {
 				bool checksumok;
 				cerr << "Handling Mux\n";
 				MinetReceive(mux,p);
-				cerr << p << endl;
+				//cerr << p << endl;
 				p.ExtractHeaderFromPayload<TCPHeader>(TCPHeader::EstimateTCPHeaderLength(p));
 				TCPHeader tcph;
 				tcph=p.FindHeader(Headers::TCPHeader);
@@ -100,7 +100,7 @@ int main(int argc, char * argv[]) {
 				iph.GetDestIP(c.src);
 				iph.GetSourceIP(c.dest);
 				iph.GetProtocol(c.protocol);
-				unsigned char flag;
+				unsigned char flag=0;
 				tcph.GetFlags(flag);
 				tcph.GetDestPort(c.srcport);
 				tcph.GetSourcePort(c.destport);
@@ -116,9 +116,15 @@ int main(int argc, char * argv[]) {
 					if (!checksumok) {
 						MinetSendToMonitor(MinetMonitoringEvent("forwarding packet to sock even though checksum failed"));
 					}
+					if(IS_ACK(flag)){
+						cerr << "Is Ack" << endl;
+					}
 					MinetSend(sock,write);
 				} else if (cs!=clist.end() && IS_SYN(flag)){
 					cerr << "SYN connection already established\n";
+					if(IS_ACK(flag)){
+						cerr << "Is Ack" << endl;
+					}
 					//send ack
 					Packet a;
 					// Make the IP header first since we need it to do the udp checksum
@@ -133,18 +139,27 @@ int main(int argc, char * argv[]) {
 					// notice that we pass along the packet so that the udpheader can find
 					// the ip header because it will include some of its fields in the checksum
 					TCPHeader uh;
-					unsigned char flag;
-					CLR_ACK(flag);
-					SET_ACK(flag);
+					unsigned char flag_1=0;
+					unsigned int seq;
+					unsigned short window_size;
+					tcph.GetSeqNum(seq);
+					tcph.GetWinSize(window_size);
+					CLR_ACK(flag_1);
+					SET_ACK(flag_1);
 					uh.SetSourcePort((*cs).connection.srcport,a);
 					uh.SetDestPort((*cs).connection.destport,a);
 					uh.SetHeaderLen(TCP_HEADER_BASE_LENGTH,a);
-					uh.SetFlags(flag,a);
+					uh.SetFlags(flag_1,a);
+					uh.SetAckNum(seq+1,a);
+					uh.SetSeqNum(1,a);
+					uh.SetWinSize(window_size,a);
+					uh.SetUrgentPtr(0,a);
 					// Now we want to have the tcp header BEHIND the IP header
 					a.PushBackHeader(uh);
 					MinetSend(mux,a);
 					
 				} else if(cs==clist.end() && IS_SYN(flag)){
+					cerr << "SYN connection NOT established yet" << endl;
 					//establish TCP connection state
 					Buffer &data = p.GetPayload().ExtractFront(len);
 					SockRequestResponse connect(CONNECT, c, data, len,EOK);
@@ -154,8 +169,8 @@ int main(int argc, char * argv[]) {
 					// Make the IP header first since we need it to do the udp checksum
 					IPHeader ih;
 					ih.SetProtocol(IP_PROTO_TCP);
-					ih.SetSourceIP(connect.connection.src);
-					ih.SetDestIP(connect.connection.dest);
+					ih.SetSourceIP(connect.connection.dest);
+					ih.SetDestIP(connect.connection.src);
 					ih.SetTotalLength(TCP_HEADER_BASE_LENGTH+IP_HEADER_BASE_LENGTH);
 					// push it onto the packet
 					a.PushFrontHeader(ih);
@@ -163,13 +178,14 @@ int main(int argc, char * argv[]) {
 					// notice that we pass along the packet so that the udpheader can find
 					// the ip header because it will include some of its fields in the checksum
 					TCPHeader uh;
-					unsigned char flag;
-					CLR_ACK(flag);
-					SET_ACK(flag);
+					unsigned char flag_1=0;
+					
+					CLR_ACK(flag_1);
+					SET_ACK(flag_1);
 					uh.SetSourcePort(connect.connection.srcport,a);
 					uh.SetDestPort(connect.connection.destport,a);
 					uh.SetHeaderLen(TCP_HEADER_BASE_LENGTH,a);
-					uh.SetFlags(flag,a);
+					uh.SetFlags(flag_1,a);
 					// Now we want to have the tcp header BEHIND the IP header
 					a.PushBackHeader(uh);
 					MinetSend(mux,a);
@@ -216,15 +232,17 @@ int main(int argc, char * argv[]) {
 						// the ip header because it will include some of its fields in the checksum
 						TCPHeader uh;
 						unsigned char flag;
+						unsigned int seq=0;
 						CLR_SYN(flag);
 						SET_SYN(flag);
 						uh.SetSourcePort(req.connection.srcport,p);
 						uh.SetDestPort(req.connection.destport,p);
 						uh.SetHeaderLen(TCP_HEADER_BASE_LENGTH,p);
 						uh.SetFlags(flag,p);
+						uh.SetSeqNum(seq,p);
 						// Now we want to have the tcp header BEHIND the IP header
 						p.PushBackHeader(uh);
-						cerr << p << endl;
+						//cerr << p << endl;
 						MinetSend(mux,p);
 						sleep(1);
 						MinetSend(mux,p);
